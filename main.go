@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"strings"
 
 	hiero "github.com/hiero-ledger/hiero-sdk-go/v2/sdk"
 )
@@ -54,6 +55,11 @@ func run(filePath string) error {
 		return fail("INVALID_INPUT", err)
 	}
 
+	rawUnits, err := toRawUnits(req.Amount, usdcDecimals)
+	if err != nil {
+		return fail("INVALID_INPUT", err)
+	}
+
 	cfg, err := loadConfig()
 	if err != nil {
 		return fail("CONFIG_MISSING", err)
@@ -65,7 +71,7 @@ func run(filePath string) error {
 	}
 	defer func() { _ = client.Close() }()
 
-	result, err := executeTransfer(client, cfg, &req)
+	result, err := executeTransfer(client, cfg, &req, rawUnits)
 	if err != nil {
 		return fail("TRANSFER_FAILED", err)
 	}
@@ -107,7 +113,7 @@ func loadConfig() (*config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid OPERATOR_ID %q: %w", opID, err)
 	}
-	privKey, err := hiero.PrivateKeyFromString(opKey)
+	privKey, err := parseOperatorKey(opKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid OPERATOR_KEY: %w", err)
 	}
@@ -133,15 +139,21 @@ func buildClient(cfg *config) (*hiero.Client, error) {
 	return client, nil
 }
 
-func executeTransfer(client *hiero.Client, cfg *config, req *PaymentRequest) (*Result, error) {
+// toRawUnits converts a decimal token amount to the integer raw units used by
+// the SDK. Returns an error if the amount is positive but small enough to round
+// down to zero — that's an input precision issue, not a transfer failure.
+func toRawUnits(amount float64, decimals uint32) (int64, error) {
+	raw := int64(math.Round(amount * math.Pow10(int(decimals))))
+	if raw <= 0 {
+		return 0, fmt.Errorf("amount %v rounds to zero raw units at %d decimals", amount, decimals)
+	}
+	return raw, nil
+}
+
+func executeTransfer(client *hiero.Client, cfg *config, req *PaymentRequest, rawUnits int64) (*Result, error) {
 	recipientID, err := hiero.AccountIDFromString(req.RecipientAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid recipientAccountId: %w", err)
-	}
-
-	rawUnits := int64(math.Round(req.Amount * math.Pow10(usdcDecimals)))
-	if rawUnits <= 0 {
-		return nil, fmt.Errorf("amount %v rounds to zero raw units at %d decimals", req.Amount, usdcDecimals)
 	}
 
 	tx := hiero.NewTransferTransaction().
@@ -170,6 +182,22 @@ func readInput(filePath string) ([]byte, error) {
 		return io.ReadAll(os.Stdin)
 	}
 	return os.ReadFile(filePath)
+}
+
+// parseOperatorKey accepts either an ECDSA secp256k1 or an ED25519 private key
+// in hex (with or without `0x` prefix), DER, or PEM. Hedera's auto-detect parser
+// defaults raw hex to ED25519, which silently mis-parses ECDSA keys — so we try
+// ECDSA first.
+func parseOperatorKey(s string) (hiero.PrivateKey, error) {
+	s = strings.TrimPrefix(s, "0x")
+	s = strings.TrimPrefix(s, "0X")
+	if k, err := hiero.PrivateKeyFromStringECDSA(s); err == nil {
+		return k, nil
+	}
+	if k, err := hiero.PrivateKeyFromStringEd25519(s); err == nil {
+		return k, nil
+	}
+	return hiero.PrivateKeyFromString(s)
 }
 
 // fail writes a structured JSON error to stderr and returns the original error.
