@@ -1,0 +1,7 @@
+.env
+hiero-pay
+hiero-pay.exe
+*.exe
+.DS_Store
+.idea/
+.vscode/
