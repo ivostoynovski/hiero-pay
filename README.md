@@ -11,10 +11,6 @@ stablecoin payments + (planned) HCS audit log as the demo.
 Reads a JSON payment request, executes a USDC transfer on Hedera, returns the
 transaction ID. That's it. JSON in → USDC moves → result out.
 
-```
-echo '{"recipientAccountId":"0.0.5678","amount":1.5}' | hiero-pay
-```
-
 ## v1 user flow
 
 1. You provide a JSON payment request via stdin or `--file`.
