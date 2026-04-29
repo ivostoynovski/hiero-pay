@@ -18,16 +18,6 @@ transaction ID. That's it. JSON in → USDC moves → result out.
 3. The CLI executes the USDC transfer using your operator credentials.
 4. The CLI returns transaction ID + status as JSON, or a clear error.
 
-## Why this exists
-
-The Hedera + AI agent space already has MCP servers for payments
-([`hedera-mcp/hedera-mcp-server`](https://github.com/hedera-mcp/hedera-mcp-server),
-[`pisuthd/hedera-mcp`](https://github.com/pisuthd/hedera-mcp)) — all in
-JS/TypeScript, all wrapping the Hedera Agent Kit. There is no Go equivalent.
-
-This repo is the Go reference: how to wire `hiero-sdk-go` into a small CLI
-that an agent (or a human) can drive. Keep it minimal, keep it readable.
-
 ## Setup
 
 ```sh
