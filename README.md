@@ -2,9 +2,9 @@
 
 A reference Go implementation showing how to build a Claude Code agent skill on
 top of [`hiero-sdk-go`](https://github.com/hiero-ledger/hiero-sdk-go), using
-stablecoin payments + (planned) HCS audit log as the demo.
+stablecoin payments + an HCS audit log as the demo.
 
-> Status: v1 in progress. Testnet only. Not production-ready.
+> Status: v1.5. Testnet only. Not production-ready.
 
 ## What it does
 
@@ -16,7 +16,28 @@ transaction ID. That's it. JSON in → USDC moves → result out.
 1. You provide a JSON payment request via stdin or `--file`.
 2. The CLI validates the JSON.
 3. The CLI executes the USDC transfer using your operator credentials.
-4. The CLI returns transaction ID + status as JSON, or a clear error.
+4. (Optional) The CLI submits an audit message to an HCS topic.
+5. The CLI returns transaction ID + audit result as JSON, or a clear error.
+
+## Verifiable audit log
+
+When `AUDIT_TOPIC_ID` is set in `.env`, every successful payment also writes a
+JSON message to a Hedera Consensus Service topic. The topic is publicly
+readable, ordered, and tamper-proof — an external auditor can read the full
+payment history with one URL, and the network's consensus timestamps make
+backdating impossible.
+
+Bootstrap your own audit topic:
+
+```sh
+go run ./scripts/create-audit-topic
+# prints a topic ID; paste it into AUDIT_TOPIC_ID in .env
+```
+
+The topic's submit key is your operator, so only this binary can write to it.
+Reads are unrestricted (that's the design).
+
+If `AUDIT_TOPIC_ID` is empty, audit logging is silently skipped.
 
 ## Setup
 
@@ -33,10 +54,11 @@ Get free testnet credentials from <https://portal.hedera.com>.
 
 ## Roadmap
 
-- [ ] v1: USDC transfer on testnet, JSON in/out
-- [ ] HCS audit log (every payment recorded to a topic)
+- [x] v1: USDC transfer on testnet, JSON in/out
+- [x] HCS audit log (every payment recorded to a topic)
+- [x] Claude Code skill (`SKILL.md`) wiring
 - [ ] Multi-token (not just USDC)
-- [ ] Claude Code skill (`SKILL.md`) wiring
+- [ ] Mainnet hardening (small balances, return-bytes mode for confirm-before-sign)
 
 ## License
 

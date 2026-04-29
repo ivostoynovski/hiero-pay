@@ -48,9 +48,27 @@ cd ~/Projects/hiero-pay && source .env
    ```
 
 3. Read the result:
-   - **Success:** stdout contains JSON `{"transactionId":"...","status":"SUCCESS"}`.
-     Report the transaction ID to the user with a HashScan link:
-     `https://hashscan.io/<network>/transaction/<transactionId>`
+   - **Success:** stdout contains JSON like:
+     ```json
+     {
+       "transactionId": "...",
+       "status": "SUCCESS",
+       "auditStatus": "SUCCESS",
+       "auditMessage": {"topicId":"0.0.X","transactionId":"...","sequenceNumber":N}
+     }
+     ```
+     Report the transaction ID with a HashScan transaction link, and (when
+     `auditStatus = SUCCESS`) also include the audit topic + sequence number
+     with a link to the topic message:
+     `https://hashscan.io/<network>/topic/<topicId>/message/<sequenceNumber>`
+   - **Audit semantics** (when `status` is SUCCESS, the payment moved regardless):
+     - `auditStatus: "SUCCESS"` — both payment and audit log entry succeeded.
+     - `auditStatus: "SKIPPED"` — `AUDIT_TOPIC_ID` is unset; no audit was attempted.
+       Mention this briefly so the user knows their payment was not logged on
+       HCS. Do not treat it as an error.
+     - `auditStatus: "FAILED"` — payment succeeded but the audit submission
+       errored. The `auditError` field has the reason. Surface it as a warning
+       — the payment is real but the on-chain log entry is missing.
    - **Failure:** stderr contains JSON `{"code":"...","error":"..."}`.
      Surface the `error` message to the user; reference the `code` so they know
      the failure category. Common codes:
@@ -61,7 +79,7 @@ cd ~/Projects/hiero-pay && source .env
 
 ## Examples
 
-### Simple payment
+### Simple payment (with audit)
 
 User: *"pay 1 USDC to 0.0.5678"*
 
@@ -72,10 +90,28 @@ echo '{"recipientAccountId":"0.0.5678","amount":1}' | ~/Projects/hiero-pay/hiero
 Expected stdout:
 
 ```json
-{"transactionId":"0.0.8812171@1714400000.123456789","status":"SUCCESS"}
+{"transactionId":"0.0.8812171@1714400000.123456789","status":"SUCCESS","auditStatus":"SUCCESS","auditMessage":{"topicId":"0.0.8819445","transactionId":"0.0.8812171@1714400000.987654321","sequenceNumber":42}}
 ```
 
-Reply: *"Done — sent 1 USDC to 0.0.5678. Transaction: [view on HashScan](https://hashscan.io/testnet/transaction/0.0.8812171@1714400000.123456789)."*
+Reply: *"Done — sent 1 USDC to 0.0.5678. Transaction: [view on HashScan](https://hashscan.io/testnet/transaction/0.0.8812171@1714400000.123456789). Audit log entry #42 on topic [0.0.8819445](https://hashscan.io/testnet/topic/0.0.8819445/message/42)."*
+
+### Audit skipped (AUDIT_TOPIC_ID not configured)
+
+Same payment input. Output:
+
+```json
+{"transactionId":"...","status":"SUCCESS","auditStatus":"SKIPPED"}
+```
+
+Reply: *"Done — sent 1 USDC to 0.0.5678. Transaction: [view on HashScan](...). (Audit logging is disabled — set AUDIT_TOPIC_ID in .env to enable.)"*
+
+### Audit failed (payment still succeeded)
+
+```json
+{"transactionId":"...","status":"SUCCESS","auditStatus":"FAILED","auditError":"submit topic message: exceptional receipt status: INVALID_TOPIC_ID"}
+```
+
+Reply: *"Sent 1 USDC to 0.0.5678. ⚠️ The audit log entry failed to record (INVALID_TOPIC_ID — check AUDIT_TOPIC_ID in your .env). The payment itself is on-chain at [tx link]."*
 
 ### With memo
 

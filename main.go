@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"time"
 
 	hiero "github.com/hiero-ledger/hiero-sdk-go/v2/sdk"
 )
@@ -19,8 +20,11 @@ const usdcDecimals = 6
 
 // Result is the JSON written to stdout on success.
 type Result struct {
-	TransactionID string `json:"transactionId"`
-	Status        string `json:"status"`
+	TransactionID string       `json:"transactionId"`
+	Status        string       `json:"status"`
+	AuditStatus   string       `json:"auditStatus,omitempty"`   // SUCCESS | SKIPPED | FAILED
+	AuditMessage  *AuditResult `json:"auditMessage,omitempty"`  // present when AuditStatus = SUCCESS
+	AuditError    string       `json:"auditError,omitempty"`    // present when AuditStatus = FAILED
 }
 
 // ErrorOut is the JSON written to stderr on failure. Code is a stable machine-
@@ -76,16 +80,42 @@ func run(filePath string) error {
 		return fail("TRANSFER_FAILED", err)
 	}
 
+	// Audit logging — degrade gracefully. Payment integrity always trumps
+	// audit completeness: if the audit submission fails, we still report the
+	// transfer as SUCCESS but mark the audit as FAILED so the caller knows.
+	if cfg.auditTopicID == nil {
+		result.AuditStatus = "SKIPPED"
+	} else {
+		audit, auditErr := writeAudit(client, cfg, &AuditMessage{
+			Version:       auditMessageVersion,
+			TransactionID: result.TransactionID,
+			From:          cfg.operatorID.String(),
+			To:            req.RecipientAccountID,
+			TokenID:       cfg.tokenID.String(),
+			Amount:        req.Amount,
+			Memo:          req.Memo,
+			Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		})
+		if auditErr != nil {
+			result.AuditStatus = "FAILED"
+			result.AuditError = auditErr.Error()
+		} else {
+			result.AuditStatus = "SUCCESS"
+			result.AuditMessage = audit
+		}
+	}
+
 	encoded, _ := json.Marshal(result)
 	fmt.Println(string(encoded))
 	return nil
 }
 
 type config struct {
-	operatorID  hiero.AccountID
-	operatorKey hiero.PrivateKey
-	network     string
-	tokenID     hiero.TokenID
+	operatorID    hiero.AccountID
+	operatorKey   hiero.PrivateKey
+	network       string
+	tokenID       hiero.TokenID
+	auditTopicID  *hiero.TopicID // nil when audit logging is disabled
 }
 
 func loadConfig() (*config, error) {
@@ -122,11 +152,22 @@ func loadConfig() (*config, error) {
 		return nil, fmt.Errorf("invalid USDC_TOKEN_ID %q: %w", tokenID, err)
 	}
 
+	// AUDIT_TOPIC_ID is optional — when empty, audit logging is skipped.
+	var auditTopic *hiero.TopicID
+	if raw := os.Getenv("AUDIT_TOPIC_ID"); raw != "" {
+		parsed, err := hiero.TopicIDFromString(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid AUDIT_TOPIC_ID %q: %w", raw, err)
+		}
+		auditTopic = &parsed
+	}
+
 	return &config{
-		operatorID:  accountID,
-		operatorKey: privKey,
-		network:     network,
-		tokenID:     tID,
+		operatorID:   accountID,
+		operatorKey:  privKey,
+		network:      network,
+		tokenID:      tID,
+		auditTopicID: auditTopic,
 	}, nil
 }
 
