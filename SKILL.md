@@ -12,7 +12,7 @@ local `hiero-pay` binary.
 
 User says things like:
 - "pay 1 USDC to 0.0.5678"
-- "send Alice 5 USDC for PR #1685" (only if you can resolve Alice → account ID; otherwise ask)
+- "send Alice 5 USDC" (only if you can resolve Alice → account ID; otherwise ask)
 - "transfer 0.50 USDC to 0.0.9999"
 
 Do **not** invoke for:
@@ -79,10 +79,10 @@ Reply: *"Done — sent 1 USDC to 0.0.5678. Transaction: [view on HashScan](https
 
 ### With memo
 
-User: *"send 5.5 USDC to 0.0.9999 for PR #1685"*
+User: *"send 5.5 USDC to 0.0.9999, memo: invoice 42"*
 
 ```sh
-echo '{"recipientAccountId":"0.0.9999","amount":5.5,"memo":"PR #1685"}' | ~/Projects/hiero-pay/hiero-pay
+echo '{"recipientAccountId":"0.0.9999","amount":5.5,"memo":"invoice 42"}' | ~/Projects/hiero-pay/hiero-pay
 ```
 
 ### Failure (recipient not associated with USDC)
