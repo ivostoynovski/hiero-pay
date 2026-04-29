@@ -1,8 +1,9 @@
 # hiero-pay
 
-A reference Go implementation showing how to build a Claude Code agent skill on
-top of [`hiero-sdk-go`](https://github.com/hiero-ledger/hiero-sdk-go), using
-stablecoin payments + an HCS audit log as the demo.
+A Go CLI that lets a Claude Code agent send USDC payments on Hedera, with
+each payment recorded to a tamper-proof HCS audit log. Built as a reference
+implementation of
+[`hiero-sdk-go`](https://github.com/hiero-ledger/hiero-sdk-go).
 
 > Status: v1.5. Testnet only. Not production-ready.
 
