@@ -12,7 +12,7 @@ Reads a JSON payment request, executes a USDC transfer on Hedera, returns the
 transaction ID. That's it. JSON in → USDC moves → result out.
 
 ```
-echo '{"developerAccountId":"0.0.5678","amountUsdc":1.5}' | hiero-pay
+echo '{"recipientAccountId":"0.0.5678","amount":1.5}' | hiero-pay
 ```
 
 ## v1 user flow
