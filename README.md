@@ -40,4 +40,4 @@ Get free testnet credentials from <https://portal.hedera.com>.
 
 ## License
 
-Apache 2.0 (matching the Hiero SDK).
+Apache 2.0
