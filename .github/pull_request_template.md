@@ -18,7 +18,6 @@
 - [ ] PR title follows Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`)
 - [ ] `go vet ./...`, `go build ./...`, `go test ./...` all pass locally
 - [ ] If this changes the CLI input/output schema, `SKILL.md` is updated
-- [ ] If this changes user-facing behavior, `CHANGELOG.md` is updated
 - [ ] No `.env`, keys, or other secrets in the diff
 - [ ] If you tested manually against testnet, mention what you ran in the description
 
