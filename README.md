@@ -128,36 +128,6 @@ permission grants).
 If `AUDIT_TOPIC_ID` is empty, audit logging is silently skipped and
 `auditStatus` reports `SKIPPED`.
 
-## Troubleshooting
-
-**`CONFIG_MISSING`** — env vars not set in the current shell. Run
-`source .env`.
-
-**`AUTH_ERROR: invalid OPERATOR_KEY`** — your private key didn't parse. Strip
-any `0x` prefix isn't required (the binary handles it). Make sure you copied
-the **ECDSA** private key from the portal (matching your account's key type),
-not the ED25519 one.
-
-**`TRANSFER_FAILED: ... INVALID_SIGNATURE`** — the `OPERATOR_KEY` in `.env`
-signs for a different account than `OPERATOR_ID`. The portal shows pairs;
-make sure both come from the same account.
-
-**`TRANSFER_FAILED: ... TOKEN_NOT_ASSOCIATED_TO_ACCOUNT`** — the recipient
-account hasn't associated with the USDC token, and isn't using
-auto-associations. They need to call `TokenAssociate` for the token first.
-
-**`TRANSFER_FAILED: ... INSUFFICIENT_TOKEN_BALANCE`** — your operator doesn't
-hold enough of the configured token. Top up via the faucet or a peer
-transfer.
-
-**`TRANSFER_FAILED: ... INVALID_ACCOUNT_ID`** — the recipient account ID in
-your JSON doesn't exist on the network you're using. Double-check both the
-ID and `HEDERA_NETWORK`.
-
-**Faucet didn't deliver USDC** — check that you selected **Hedera Testnet**
-(not "Arc Testnet" or another option) at <https://faucet.circle.com>, and
-pasted the Hedera ID (`0.0.X`), not the EVM address (`0x...`).
-
 ## Roadmap
 
 - [x] v1: USDC transfer on testnet, JSON in/out
