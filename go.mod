@@ -2,7 +2,10 @@ module github.com/ivostoynovski/hiero-pay
 
 go 1.25.7
 
-require github.com/hiero-ledger/hiero-sdk-go/v2 v2.78.1
+require (
+	github.com/hiero-ledger/hiero-sdk-go/v2 v2.78.1
+	github.com/shopspring/decimal v1.4.0
+)
 
 require (
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6 // indirect

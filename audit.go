@@ -9,19 +9,19 @@ import (
 
 // auditMessageVersion identifies the schema of the JSON written to the audit
 // topic. Bump it if the shape ever changes — readers can branch on the version.
-const auditMessageVersion = 1
+const auditMessageVersion = 2
 
 // AuditMessage is the JSON payload appended to the HCS audit topic for every
 // successful payment.
 type AuditMessage struct {
-	Version       int     `json:"v"`
-	TransactionID string  `json:"txId"`
-	From          string  `json:"from"`
-	To            string  `json:"to"`
-	TokenID       string  `json:"tokenId"`
-	Amount        float64 `json:"amount"`
-	Memo          string  `json:"memo,omitempty"`
-	Timestamp     string  `json:"timestamp"` // RFC3339
+	Version       int    `json:"v"`
+	TransactionID string `json:"txId"`
+	From          string `json:"from"`
+	To            string `json:"to"`
+	TokenID       string `json:"tokenId"`
+	Amount        string `json:"amount"` // canonical decimal text, e.g. "1.5"
+	Memo          string `json:"memo,omitempty"`
+	Timestamp     string `json:"timestamp"` // RFC3339
 }
 
 // AuditResult is the output of a successful audit submission, surfaced into
