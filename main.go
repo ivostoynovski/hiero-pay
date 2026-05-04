@@ -12,11 +12,15 @@ import (
 	"time"
 
 	hiero "github.com/hiero-ledger/hiero-sdk-go/v2/sdk"
+	"github.com/shopspring/decimal"
 )
 
 // usdcDecimals is the standard precision for Circle USDC. Hardcoded for v1;
 // could be fetched from the token info at runtime later.
-const usdcDecimals = 6
+const usdcDecimals int32 = 6
+
+// defaultMaxAmount is the safety cap applied when MAX_PAYMENT_AMOUNT is unset.
+var defaultMaxAmount = decimal.NewFromInt(10_000)
 
 // Result is the JSON written to stdout on success.
 type Result struct {
@@ -59,14 +63,18 @@ func run(filePath string) error {
 		return fail("INVALID_INPUT", err)
 	}
 
-	rawUnits, err := toRawUnits(req.Amount, usdcDecimals)
-	if err != nil {
-		return fail("INVALID_INPUT", err)
-	}
-
 	cfg, err := loadConfig()
 	if err != nil {
 		return fail("CONFIG_MISSING", err)
+	}
+
+	if req.Amount.GreaterThan(cfg.maxAmount) {
+		return fail("INVALID_INPUT", fmt.Errorf("amount %s exceeds MAX_PAYMENT_AMOUNT cap of %s", req.Amount.String(), cfg.maxAmount.String()))
+	}
+
+	rawUnits, err := toRawUnits(req.Amount, usdcDecimals)
+	if err != nil {
+		return fail("INVALID_INPUT", err)
 	}
 
 	client, err := buildClient(cfg)
@@ -92,7 +100,7 @@ func run(filePath string) error {
 			From:          cfg.operatorID.String(),
 			To:            req.RecipientAccountID,
 			TokenID:       cfg.tokenID.String(),
-			Amount:        req.Amount,
+			Amount:        req.Amount.String(),
 			Memo:          req.Memo,
 			Timestamp:     time.Now().UTC().Format(time.RFC3339),
 		})
@@ -111,11 +119,12 @@ func run(filePath string) error {
 }
 
 type config struct {
-	operatorID    hiero.AccountID
-	operatorKey   hiero.PrivateKey
-	network       string
-	tokenID       hiero.TokenID
-	auditTopicID  *hiero.TopicID // nil when audit logging is disabled
+	operatorID   hiero.AccountID
+	operatorKey  hiero.PrivateKey
+	network      string
+	tokenID      hiero.TokenID
+	auditTopicID *hiero.TopicID  // nil when audit logging is disabled
+	maxAmount    decimal.Decimal // upper cap on a single payment
 }
 
 func loadConfig() (*config, error) {
@@ -162,12 +171,26 @@ func loadConfig() (*config, error) {
 		auditTopic = &parsed
 	}
 
+	// MAX_PAYMENT_AMOUNT is optional — falls back to defaultMaxAmount.
+	maxAmount := defaultMaxAmount
+	if raw := os.Getenv("MAX_PAYMENT_AMOUNT"); raw != "" {
+		parsed, err := decimal.NewFromString(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MAX_PAYMENT_AMOUNT %q: %w", raw, err)
+		}
+		if !parsed.IsPositive() {
+			return nil, fmt.Errorf("MAX_PAYMENT_AMOUNT must be positive, got %s", raw)
+		}
+		maxAmount = parsed
+	}
+
 	return &config{
 		operatorID:   accountID,
 		operatorKey:  privKey,
 		network:      network,
 		tokenID:      tID,
 		auditTopicID: auditTopic,
+		maxAmount:    maxAmount,
 	}, nil
 }
 
@@ -181,14 +204,20 @@ func buildClient(cfg *config) (*hiero.Client, error) {
 }
 
 // toRawUnits converts a decimal token amount to the integer raw units used by
-// the SDK. Returns an error if the amount is positive but small enough to round
-// down to zero — that's an input precision issue, not a transfer failure.
-func toRawUnits(amount float64, decimals uint32) (int64, error) {
-	raw := int64(math.Round(amount * math.Pow10(int(decimals))))
-	if raw <= 0 {
-		return 0, fmt.Errorf("amount %v rounds to zero raw units at %d decimals", amount, decimals)
+// the SDK. The conversion is exact: callers are expected to have already
+// validated that amount has at most `decimals` fractional digits.
+func toRawUnits(amount decimal.Decimal, decimals int32) (int64, error) {
+	raw := amount.Shift(decimals)
+	if !raw.IsInteger() {
+		return 0, fmt.Errorf("amount %s exceeds %d-decimal precision", amount.String(), decimals)
 	}
-	return raw, nil
+	if !raw.IsPositive() {
+		return 0, fmt.Errorf("amount %s rounds to zero raw units at %d decimals", amount.String(), decimals)
+	}
+	if raw.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+		return 0, fmt.Errorf("amount %s overflows int64 raw units at %d decimals", amount.String(), decimals)
+	}
+	return raw.IntPart(), nil
 }
 
 func executeTransfer(client *hiero.Client, cfg *config, req *PaymentRequest, rawUnits int64) (*Result, error) {

@@ -38,8 +38,15 @@ cd ~/Projects/hiero-pay && source .env
 
 1. Build the request JSON. Required fields:
    - `recipientAccountId` (string, format `0.0.X`)
-   - `amount` (number, USDC, > 0; up to 6 decimals)
+   - `amount` (JSON **string**, USDC, > 0, up to 6 decimals — e.g. `"1.5"`.
+     Bare JSON numbers like `1.5` are rejected at decode time; always quote
+     the value.)
    - `memo` (optional, ≤ 100 bytes — useful for tracing)
+
+   The binary enforces a per-call cap (default 10,000 USDC, configurable via
+   `MAX_PAYMENT_AMOUNT` in `.env`). If a request exceeds it, the binary
+   returns `INVALID_INPUT`. Don't attempt to bypass the cap — surface the
+   error to the user and ask them to raise it explicitly if intended.
 
 2. Pipe it to the binary:
 
@@ -84,7 +91,7 @@ cd ~/Projects/hiero-pay && source .env
 User: *"pay 1 USDC to 0.0.5678"*
 
 ```sh
-echo '{"recipientAccountId":"0.0.5678","amount":1}' | ~/Projects/hiero-pay/hiero-pay
+echo '{"recipientAccountId":"0.0.5678","amount":"1"}' | ~/Projects/hiero-pay/hiero-pay
 ```
 
 Expected stdout:
@@ -118,7 +125,7 @@ Reply: *"Sent 1 USDC to 0.0.5678. ⚠️ The audit log entry failed to record (I
 User: *"send 5.5 USDC to 0.0.9999, memo: invoice 42"*
 
 ```sh
-echo '{"recipientAccountId":"0.0.9999","amount":5.5,"memo":"invoice 42"}' | ~/Projects/hiero-pay/hiero-pay
+echo '{"recipientAccountId":"0.0.9999","amount":"5.5","memo":"invoice 42"}' | ~/Projects/hiero-pay/hiero-pay
 ```
 
 ### Failure (recipient not associated with USDC)

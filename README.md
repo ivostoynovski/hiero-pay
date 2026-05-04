@@ -79,9 +79,15 @@ go build .
 ## Invoking
 
 ```sh
-echo '{"recipientAccountId":"0.0.5678","amount":1.5,"memo":"vendor invoice"}' \
+echo '{"recipientAccountId":"0.0.5678","amount":"1.5","memo":"vendor invoice"}' \
   | ./hiero-pay
 ```
+
+`amount` is required to be a JSON **string** ("1.5") — JSON numbers are
+rejected at decode time so callers can't accidentally pass a float-imprecise
+value. Up to 6 decimal places (USDC's precision). A per-call cap of 10,000
+USDC is enforced by default; raise it via `MAX_PAYMENT_AMOUNT` in `.env` if
+your workflow needs larger transfers.
 
 Or via Claude Code: open this directory in Claude Code and the
 `SKILL.md` under `.claude/skills/hiero-pay/` is auto-discovered. Ask in
