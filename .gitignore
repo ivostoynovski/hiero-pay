@@ -5,3 +5,9 @@ hiero-pay.exe
 .DS_Store
 .idea/
 .vscode/
+
+# Per-machine Claude Code settings
+.claude/settings.local.json
+
+# Working planning doc, not part of the source tree
+ADDRESS_BOOK_PLAN.md
