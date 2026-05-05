@@ -34,17 +34,6 @@ cd ~/Projects/hiero-pay && source .env
 
 …then retry.
 
-**Before constructing the first payment in a session, run a version check** so a
-stale binary fails loudly instead of via a cryptic decode error:
-
-```sh
-~/Projects/hiero-pay/hiero-pay --version
-```
-
-This skill expects `v1.6.0`. If the binary reports a different version, the
-request schema may have drifted — surface the mismatch to the user instead of
-attempting a payment.
-
 ## Sending a payment
 
 ### Request schema

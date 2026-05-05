@@ -78,7 +78,6 @@ source .env
 go build .
 
 # 4. Sanity-test
-./hiero-pay --version
 ./hiero-pay --help
 ```
 
