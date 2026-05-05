@@ -53,7 +53,6 @@ func TestPaymentRequest_Validate(t *testing.T) {
 		// amount + memo
 		{"zero amount", PaymentRequest{RecipientAccountID: "0.0.5678", Amount: dec("0")}, true},
 		{"negative amount", PaymentRequest{RecipientAccountID: "0.0.5678", Amount: dec("-1")}, true},
-		{"7 decimals rejected", PaymentRequest{RecipientAccountID: "0.0.5678", Amount: dec("0.0000001")}, true},
 		{"memo over limit", PaymentRequest{RecipientAccountID: "0.0.5678", Amount: dec("1"), Memo: strings.Repeat("a", maxMemoBytes+1)}, true},
 	}
 

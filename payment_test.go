@@ -49,21 +49,48 @@ func newPayFixture(t *testing.T) (*config, PaymentRequest, Transfer) {
 	cfg := &config{
 		operatorID:   mustAccountID(t, "0.0.111"),
 		network:      "testnet",
-		tokenID:      mustTokenID(t, "0.0.222"),
 		auditTopicID: nil,
 		maxAmount:    decimal.NewFromInt(10_000),
 	}
 	req := PaymentRequest{
 		RecipientAccountID: "0.0.333",
+		Asset:              "USDC",
 		Amount:             dec("1.5"),
 		Memo:               "unit test",
 	}
 	transfer := Transfer{
-		TokenID:  cfg.tokenID,
-		From:     cfg.operatorID,
-		To:       mustAccountID(t, req.RecipientAccountID),
-		RawUnits: 1_500_000,
-		Memo:     req.Memo,
+		AssetKind: AssetKindHTS,
+		TokenID:   mustTokenID(t, "0.0.222"),
+		From:      cfg.operatorID,
+		To:        mustAccountID(t, req.RecipientAccountID),
+		RawUnits:  1_500_000,
+		Memo:      req.Memo,
+	}
+	return cfg, req, transfer
+}
+
+// newHbarPayFixture is the HBAR-denominated counterpart of newPayFixture.
+// AssetKind is HBAR; TokenID is left zero. RawUnits represents tinybars.
+func newHbarPayFixture(t *testing.T) (*config, PaymentRequest, Transfer) {
+	t.Helper()
+	cfg := &config{
+		operatorID:   mustAccountID(t, "0.0.111"),
+		network:      "testnet",
+		auditTopicID: nil,
+		maxAmount:    decimal.NewFromInt(10_000),
+	}
+	req := PaymentRequest{
+		RecipientAccountID: "0.0.333",
+		Asset:              "HBAR",
+		Amount:             dec("1.5"),
+		Memo:               "unit test hbar",
+	}
+	transfer := Transfer{
+		AssetKind: AssetKindHBAR,
+		From:      cfg.operatorID,
+		To:        mustAccountID(t, req.RecipientAccountID),
+		RawUnits:  150_000_000, // 1.5 HBAR in tinybars
+		Memo:      req.Memo,
 	}
 	return cfg, req, transfer
 }
@@ -103,6 +130,9 @@ func TestPay_HappyPath_PassesTransferToSigner(t *testing.T) {
 		t.Fatalf("signer.calls = %d, want 1", len(signer.calls))
 	}
 	got := signer.calls[0]
+	if got.AssetKind != transfer.AssetKind {
+		t.Errorf("Submit got AssetKind=%v, want %v", got.AssetKind, transfer.AssetKind)
+	}
 	if got.TokenID != transfer.TokenID {
 		t.Errorf("Submit got TokenID=%v, want %v", got.TokenID, transfer.TokenID)
 	}
@@ -117,6 +147,42 @@ func TestPay_HappyPath_PassesTransferToSigner(t *testing.T) {
 	}
 	if got.Memo != transfer.Memo {
 		t.Errorf("Submit got Memo=%q, want %q", got.Memo, transfer.Memo)
+	}
+}
+
+func TestPay_HappyPath_HBAR_PassesTransferToSigner(t *testing.T) {
+	cfg, req, transfer := newHbarPayFixture(t)
+
+	signer := &fakeSigner{
+		cannedResult: TxResult{TransactionID: "0.0.111@1700000001.0", Status: "SUCCESS"},
+	}
+	deps := Deps{Cfg: cfg, Signer: signer}
+
+	result, err := Pay(context.Background(), deps, req, transfer)
+	if err != nil {
+		t.Fatalf("Pay returned err=%v, want nil", err)
+	}
+	if result.Status != "SUCCESS" {
+		t.Errorf("Result.Status = %q, want %q", result.Status, "SUCCESS")
+	}
+	if result.AuditStatus != "SKIPPED" {
+		t.Errorf("Result.AuditStatus = %q, want %q", result.AuditStatus, "SKIPPED")
+	}
+
+	if len(signer.calls) != 1 {
+		t.Fatalf("signer.calls = %d, want 1", len(signer.calls))
+	}
+	got := signer.calls[0]
+	if got.AssetKind != AssetKindHBAR {
+		t.Errorf("Submit got AssetKind=%v, want HBAR", got.AssetKind)
+	}
+	// HBAR transfers must NOT carry a TokenID — leaving the signer-side
+	// branch to use AddHbarTransfer instead of AddTokenTransfer.
+	if (got.TokenID != hiero.TokenID{}) {
+		t.Errorf("Submit got TokenID=%v, want zero value (HBAR)", got.TokenID)
+	}
+	if got.RawUnits != 150_000_000 {
+		t.Errorf("Submit got RawUnits=%d (tinybars), want 150000000 for 1.5 HBAR", got.RawUnits)
 	}
 }
 
