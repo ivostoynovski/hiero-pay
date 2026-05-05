@@ -3,36 +3,12 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
-
-// fakePaymentStore is the test double for PaymentStore. It records every
-// Record/UpdateAudit call so orchestrator tests assert on the actual values
-// the orchestrator passed (per .claude/agents/test-verifier.md — fakes that
-// ignore inputs are a false-positive trap).
-type fakePaymentStore struct {
-	recordCalls       []PaymentRow
-	updateAuditCalls  []fakePaymentUpdate
-	cannedRecordErr   error
-	cannedUpdateError error
-}
-
-type fakePaymentUpdate struct {
-	TxID    string
-	Outcome AuditOutcome
-}
-
-func (f *fakePaymentStore) Record(_ context.Context, p PaymentRow) error {
-	f.recordCalls = append(f.recordCalls, p)
-	return f.cannedRecordErr
-}
-
-func (f *fakePaymentStore) UpdateAudit(_ context.Context, txID string, a AuditOutcome) error {
-	f.updateAuditCalls = append(f.updateAuditCalls, fakePaymentUpdate{TxID: txID, Outcome: a})
-	return f.cannedUpdateError
-}
 
 // openTempStore opens a SQLitePaymentStore against a fresh temp DB file.
 // HIERO_PAY_DB is set so the store reads from that path; the file is
@@ -263,5 +239,157 @@ func TestSQLitePaymentStore_UpdateAudit_UnknownTxIDErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no row") {
 		t.Errorf("error %q should mention that no row matches", err.Error())
+	}
+}
+
+// seedRow is a tiny helper for the Query tests. Inserts one row and
+// returns the row's TxID for later assertions.
+func seedRow(t *testing.T, store *SQLitePaymentStore, p PaymentRow) {
+	t.Helper()
+	if err := store.Record(context.Background(), p); err != nil {
+		t.Fatalf("seed Record: %v", err)
+	}
+}
+
+func makeRow(txID, asset, toAccount, toName, submittedAt string) PaymentRow {
+	return PaymentRow{
+		TxID:           txID,
+		SchemaVersion:  schemaVersion,
+		Status:         "SUCCESS",
+		Network:        "testnet",
+		FromAccount:    "0.0.111",
+		ToAccount:      toAccount,
+		ToName:         toName,
+		Asset:          asset,
+		Decimals:       6,
+		AmountDecimal:  "1.0",
+		AmountRawUnits: 1_000_000,
+		SubmittedAt:    submittedAt,
+		AuditStatus:    "SUCCESS",
+	}
+}
+
+func TestSQLitePaymentStore_Query_FilterByAsset(t *testing.T) {
+	store := openTempStore(t)
+	seedRow(t, store, makeRow("tx1", "USDC", "0.0.222", "alice", "2026-05-05T10:00:00Z"))
+	seedRow(t, store, makeRow("tx2", "HBAR", "0.0.222", "alice", "2026-05-05T11:00:00Z"))
+	seedRow(t, store, makeRow("tx3", "USDC", "0.0.333", "bob", "2026-05-05T12:00:00Z"))
+
+	rows, err := store.Query(context.Background(), QueryFilter{Asset: "USDC"})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2 USDC rows", len(rows))
+	}
+	for _, r := range rows {
+		if r.Asset != "USDC" {
+			t.Errorf("row asset=%q, want USDC", r.Asset)
+		}
+	}
+}
+
+func TestSQLitePaymentStore_Query_FilterByRecipient_AccountID(t *testing.T) {
+	store := openTempStore(t)
+	seedRow(t, store, makeRow("tx1", "USDC", "0.0.222", "alice", "2026-05-05T10:00:00Z"))
+	seedRow(t, store, makeRow("tx2", "USDC", "0.0.333", "bob", "2026-05-05T11:00:00Z"))
+
+	rows, err := store.Query(context.Background(), QueryFilter{Recipient: "0.0.222"})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(rows) != 1 || rows[0].TxID != "tx1" {
+		t.Errorf("rows = %+v, want [tx1]", rows)
+	}
+}
+
+func TestSQLitePaymentStore_Query_FilterByRecipient_Name_CaseInsensitive(t *testing.T) {
+	store := openTempStore(t)
+	seedRow(t, store, makeRow("tx1", "USDC", "0.0.222", "Alice", "2026-05-05T10:00:00Z"))
+
+	cases := []string{"alice", "ALICE", "Alice"}
+	for _, q := range cases {
+		t.Run(q, func(t *testing.T) {
+			rows, err := store.Query(context.Background(), QueryFilter{Recipient: q})
+			if err != nil {
+				t.Fatalf("Query(%q): %v", q, err)
+			}
+			if len(rows) != 1 {
+				t.Errorf("Query(%q) returned %d rows, want 1 (case-insensitive on to_name)", q, len(rows))
+			}
+		})
+	}
+}
+
+func TestSQLitePaymentStore_Query_FilterByDateRange(t *testing.T) {
+	store := openTempStore(t)
+	seedRow(t, store, makeRow("tx1", "USDC", "0.0.222", "", "2026-05-04T12:00:00Z"))
+	seedRow(t, store, makeRow("tx2", "USDC", "0.0.222", "", "2026-05-05T12:00:00Z"))
+	seedRow(t, store, makeRow("tx3", "USDC", "0.0.222", "", "2026-05-06T12:00:00Z"))
+
+	since, _ := time.Parse(time.RFC3339, "2026-05-05T00:00:00Z")
+	until, _ := time.Parse(time.RFC3339, "2026-05-06T00:00:00Z")
+
+	rows, err := store.Query(context.Background(), QueryFilter{Since: since, Until: until})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(rows) != 1 || rows[0].TxID != "tx2" {
+		t.Errorf("rows = %+v, want only tx2", rows)
+	}
+}
+
+func TestSQLitePaymentStore_Query_OrdersNewestFirst(t *testing.T) {
+	store := openTempStore(t)
+	seedRow(t, store, makeRow("tx-old", "USDC", "0.0.222", "", "2026-05-01T12:00:00Z"))
+	seedRow(t, store, makeRow("tx-new", "USDC", "0.0.222", "", "2026-05-05T12:00:00Z"))
+	seedRow(t, store, makeRow("tx-mid", "USDC", "0.0.222", "", "2026-05-03T12:00:00Z"))
+
+	rows, err := store.Query(context.Background(), QueryFilter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("len(rows) = %d, want 3", len(rows))
+	}
+	if rows[0].TxID != "tx-new" || rows[1].TxID != "tx-mid" || rows[2].TxID != "tx-old" {
+		t.Errorf("order = [%s, %s, %s], want [tx-new, tx-mid, tx-old]", rows[0].TxID, rows[1].TxID, rows[2].TxID)
+	}
+}
+
+func TestSQLitePaymentStore_Query_LimitTruncates(t *testing.T) {
+	store := openTempStore(t)
+	for i := 0; i < 5; i++ {
+		seedRow(t, store, makeRow(fmt.Sprintf("tx%d", i), "USDC", "0.0.222", "", fmt.Sprintf("2026-05-0%dT12:00:00Z", i+1)))
+	}
+	rows, err := store.Query(context.Background(), QueryFilter{Limit: 2})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Errorf("len(rows) = %d, want 2 (--limit cap)", len(rows))
+	}
+}
+
+func TestSQLitePaymentStore_Query_CombinedFilters(t *testing.T) {
+	store := openTempStore(t)
+	seedRow(t, store, makeRow("tx1", "USDC", "0.0.222", "alice", "2026-05-04T12:00:00Z"))
+	seedRow(t, store, makeRow("tx2", "HBAR", "0.0.222", "alice", "2026-05-05T12:00:00Z"))
+	seedRow(t, store, makeRow("tx3", "USDC", "0.0.333", "bob", "2026-05-05T12:00:00Z"))
+	seedRow(t, store, makeRow("tx4", "USDC", "0.0.222", "alice", "2026-05-05T13:00:00Z"))
+
+	since, _ := time.Parse(time.RFC3339, "2026-05-05T00:00:00Z")
+
+	rows, err := store.Query(context.Background(), QueryFilter{
+		Asset:     "USDC",
+		Recipient: "alice",
+		Since:     since,
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	// Only tx4 matches all three: USDC + alice + on/after 2026-05-05.
+	if len(rows) != 1 || rows[0].TxID != "tx4" {
+		t.Errorf("rows = %+v, want only tx4", rows)
 	}
 }

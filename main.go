@@ -40,6 +40,32 @@ type ErrorOut struct {
 }
 
 func main() {
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		_, _ = fmt.Fprint(out, `Usage:
+  hiero-pay [--file PATH]      Submit a payment from JSON (stdin if --file omitted)
+  hiero-pay history [flags]    Query the local payment history
+
+Pay flags:
+`)
+		flag.PrintDefaults()
+		_, _ = fmt.Fprintln(out, "\nRun 'hiero-pay history --help' to see history flags.")
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "history" {
+		store, err := OpenSQLitePaymentStore("")
+		if err != nil {
+			_ = fail("CONFIG_MISSING", err)
+			os.Exit(1)
+		}
+		defer func() { _ = store.Close() }()
+		if err := runHistory(os.Args[2:], store, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	filePath := flag.String("file", "", "JSON file with payment request (default: stdin)")
 	flag.Parse()
 

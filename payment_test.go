@@ -9,6 +9,42 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// fakePaymentStore records every Record / UpdateAudit / Query call so
+// orchestrator and subcommand tests assert on the actual values that
+// reached the store.
+type fakePaymentStore struct {
+	recordCalls       []PaymentRow
+	updateAuditCalls  []fakePaymentUpdate
+	queryCalls        []QueryFilter
+	cannedRecordErr   error
+	cannedUpdateError error
+	cannedQueryRows   []PaymentRow
+	cannedQueryErr    error
+}
+
+type fakePaymentUpdate struct {
+	TxID    string
+	Outcome AuditOutcome
+}
+
+func (f *fakePaymentStore) Record(_ context.Context, p PaymentRow) error {
+	f.recordCalls = append(f.recordCalls, p)
+	return f.cannedRecordErr
+}
+
+func (f *fakePaymentStore) UpdateAudit(_ context.Context, txID string, a AuditOutcome) error {
+	f.updateAuditCalls = append(f.updateAuditCalls, fakePaymentUpdate{TxID: txID, Outcome: a})
+	return f.cannedUpdateError
+}
+
+func (f *fakePaymentStore) Query(_ context.Context, filter QueryFilter) ([]PaymentRow, error) {
+	f.queryCalls = append(f.queryCalls, filter)
+	if f.cannedQueryErr != nil {
+		return nil, f.cannedQueryErr
+	}
+	return f.cannedQueryRows, nil
+}
+
 // fakeSigner records every Transfer it sees and returns canned outputs.
 // Tests assert on the recorded calls so we verify what the orchestrator
 // passed to the signer, not just that "the signer was called somehow."

@@ -7,41 +7,59 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
 
-// PaymentStore is the persistence boundary for payment history. v1 only
-// writes; the read methods needed by the history subcommand land in Slice 5.
+// PaymentStore is the persistence boundary for payment history. Record /
+// UpdateAudit are write-side; Query is the read path used by the history
+// subcommand.
 type PaymentStore interface {
 	Record(ctx context.Context, p PaymentRow) error
 	UpdateAudit(ctx context.Context, txID string, a AuditOutcome) error
+	Query(ctx context.Context, filter QueryFilter) ([]PaymentRow, error)
 }
 
-// PaymentRow mirrors the payments table schema. Fields that aren't known
-// until after audit submission (audit_topic_id, audit_seq_number,
-// audit_error) live on AuditOutcome and arrive via UpdateAudit.
+// PaymentRow mirrors the payments table schema. JSON tags drive the
+// machine-readable output of `hiero-pay history --format=json`.
 type PaymentRow struct {
-	TxID               string
-	SchemaVersion      int
-	Status             string
-	Network            string
-	FromAccount        string
-	ToAccount          string
-	ToName             string // empty when the request used recipientAccountId directly
-	Asset              string
-	TokenID            string // empty for HBAR
-	Decimals           int
-	AmountDecimal      string // canonical decimal text, e.g. "1.5"
-	AmountRawUnits     int64
-	Memo               string
-	SubmittedAt        string // RFC3339 UTC, wall-clock at row write
-	ConsensusTimestamp string // populated only when available; empty in v1
-	AuditStatus        string // PENDING | SUCCESS | SKIPPED | FAILED
-	AuditTopicID       string
-	AuditSeqNumber     int64
-	AuditError         string
+	TxID               string `json:"txId"`
+	SchemaVersion      int    `json:"-"` // internal; not part of the history output
+	Status             string `json:"status"`
+	Network            string `json:"network"`
+	FromAccount        string `json:"from"`
+	ToAccount          string `json:"to"`
+	ToName             string `json:"toName,omitempty"`
+	Asset              string `json:"asset"`
+	TokenID            string `json:"tokenId,omitempty"`
+	Decimals           int    `json:"decimals"`
+	AmountDecimal      string `json:"amount"`
+	AmountRawUnits     int64  `json:"amountRawUnits"`
+	Memo               string `json:"memo,omitempty"`
+	SubmittedAt        string `json:"submittedAt"`
+	ConsensusTimestamp string `json:"consensusTimestamp,omitempty"`
+	AuditStatus        string `json:"auditStatus"`
+	AuditTopicID       string `json:"auditTopicId,omitempty"`
+	AuditSeqNumber     int64  `json:"auditSeqNumber,omitempty"`
+	AuditError         string `json:"auditError,omitempty"`
 }
+
+// QueryFilter narrows a Query call. Empty / zero-value fields are not
+// applied — Limit ≤ 0 falls back to defaultQueryLimit. Recipient matches
+// either to_account (exact) or to_name (case-insensitive) so the operator
+// can pass either form.
+type QueryFilter struct {
+	Since     time.Time
+	Until     time.Time
+	Asset     string
+	Recipient string
+	Status    string
+	Limit     int
+}
+
+const defaultQueryLimit = 50
 
 // AuditOutcome carries the audit submission's outcome back into the row
 // after writeAudit has run.
@@ -115,6 +133,88 @@ func (s *SQLitePaymentStore) Record(ctx context.Context, p PaymentRow) error {
 		return fmt.Errorf("insert payment row %s: %w", p.TxID, err)
 	}
 	return nil
+}
+
+// Query reads payment rows matching filter, ordered newest-first. It
+// returns rows even when audit_status is PENDING / FAILED — the operator
+// asked for "what did I pay," not "what audited cleanly."
+func (s *SQLitePaymentStore) Query(ctx context.Context, f QueryFilter) ([]PaymentRow, error) {
+	where := []string{}
+	args := []any{}
+	if !f.Since.IsZero() {
+		where = append(where, "submitted_at >= ?")
+		args = append(args, f.Since.UTC().Format(time.RFC3339))
+	}
+	if !f.Until.IsZero() {
+		where = append(where, "submitted_at < ?")
+		args = append(args, f.Until.UTC().Format(time.RFC3339))
+	}
+	if f.Asset != "" {
+		where = append(where, "asset = ?")
+		args = append(args, f.Asset)
+	}
+	if f.Recipient != "" {
+		where = append(where, "(to_account = ? OR to_name COLLATE NOCASE = ?)")
+		args = append(args, f.Recipient, f.Recipient)
+	}
+	if f.Status != "" {
+		where = append(where, "status = ?")
+		args = append(args, f.Status)
+	}
+
+	limit := f.Limit
+	if limit <= 0 {
+		limit = defaultQueryLimit
+	}
+
+	q := `SELECT
+			tx_id, schema_version, status, network,
+			from_account, to_account, to_name,
+			asset, token_id, decimals,
+			amount_decimal, amount_raw_units, memo,
+			submitted_at, consensus_timestamp,
+			audit_status, audit_topic_id, audit_seq_number, audit_error
+		FROM payments`
+	if len(where) > 0 {
+		q += " WHERE " + strings.Join(where, " AND ")
+	}
+	q += " ORDER BY submitted_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query payments: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []PaymentRow
+	for rows.Next() {
+		var p PaymentRow
+		var toName, tokenID, memo, consensus, topicID, auditError sql.NullString
+		var seq sql.NullInt64
+		if err := rows.Scan(
+			&p.TxID, &p.SchemaVersion, &p.Status, &p.Network,
+			&p.FromAccount, &p.ToAccount, &toName,
+			&p.Asset, &tokenID, &p.Decimals,
+			&p.AmountDecimal, &p.AmountRawUnits, &memo,
+			&p.SubmittedAt, &consensus,
+			&p.AuditStatus, &topicID, &seq, &auditError,
+		); err != nil {
+			return nil, fmt.Errorf("scan payment row: %w", err)
+		}
+		p.ToName = toName.String
+		p.TokenID = tokenID.String
+		p.Memo = memo.String
+		p.ConsensusTimestamp = consensus.String
+		p.AuditTopicID = topicID.String
+		p.AuditSeqNumber = seq.Int64
+		p.AuditError = auditError.String
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate payment rows: %w", err)
+	}
+	return out, nil
 }
 
 // UpdateAudit fills in the audit_* columns of an existing row identified by
