@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,8 +16,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// usdcDecimals is the standard precision for Circle USDC. Hardcoded for v1;
-// could be fetched from the token info at runtime later.
 const usdcDecimals int32 = 6
 
 // defaultMaxAmount is the safety cap applied when MAX_PAYMENT_AMOUNT is unset.
@@ -77,13 +76,33 @@ func run(filePath string) error {
 		return fail("INVALID_INPUT", err)
 	}
 
+	// Resolve the recipient: either the literal account ID from the request
+	// or, when only a name was provided, a lookup against the local contacts
+	// book. The book is loaded lazily — the by-ID path keeps working with
+	// no contacts file present.
+	recipientAccountID := req.RecipientAccountID
+	if req.Recipient != "" {
+		book, bookErr := LoadContactBook()
+		if bookErr != nil {
+			return fail("INVALID_INPUT", bookErr)
+		}
+		resolved, resolveErr := book.Resolve(req.Recipient)
+		if resolveErr != nil {
+			if errors.Is(resolveErr, ErrContactNotFound) {
+				return fail("CONTACT_NOT_FOUND", resolveErr)
+			}
+			return fail("INVALID_INPUT", resolveErr)
+		}
+		recipientAccountID = resolved
+	}
+
 	client, err := buildClient(cfg)
 	if err != nil {
 		return fail("AUTH_ERROR", err)
 	}
 	defer func() { _ = client.Close() }()
 
-	recipientID, err := hiero.AccountIDFromString(req.RecipientAccountID)
+	recipientID, err := hiero.AccountIDFromString(recipientAccountID)
 	if err != nil {
 		return fail("TRANSFER_FAILED", fmt.Errorf("invalid recipientAccountId: %w", err))
 	}

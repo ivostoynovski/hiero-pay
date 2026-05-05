@@ -80,9 +80,6 @@ func TestPay_HappyPath_PassesTransferToSigner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pay returned err=%v, want nil", err)
 	}
-	if result == nil {
-		t.Fatal("Pay returned nil result")
-	}
 
 	// Verify the canned TxResult propagated to the caller-visible Result.
 	if result.TransactionID != "0.0.111@1700000000.0" {

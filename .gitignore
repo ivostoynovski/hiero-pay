@@ -11,3 +11,6 @@ hiero-pay.exe
 
 # Working planning doc, not part of the source tree
 ADDRESS_BOOK_PLAN.md
+
+# Operator-specific address book — must never be committed
+contacts.json
