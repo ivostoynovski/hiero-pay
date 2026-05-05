@@ -16,6 +16,11 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// version is the binary's reported identifier. The Claude Code skill calls
+// --version before constructing a payment so a stale binary surfaces
+// loudly rather than via a cryptic INVALID_INPUT decode error.
+const version = "v1.6.0"
+
 const usdcDecimals int32 = 6
 
 // defaultMaxAmount is the safety cap applied when MAX_PAYMENT_AMOUNT is unset.
@@ -66,8 +71,14 @@ Pay flags:
 		return
 	}
 
+	versionFlag := flag.Bool("version", false, "print version and exit")
 	filePath := flag.String("file", "", "JSON file with payment request (default: stdin)")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println(version)
+		return
+	}
 
 	if err := run(*filePath); err != nil {
 		os.Exit(1)
