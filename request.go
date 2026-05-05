@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/shopspring/decimal"
 )
@@ -11,18 +12,16 @@ import (
 // PaymentRequest is the JSON schema accepted by hiero-pay on stdin or via --file.
 // The token transferred is determined by the USDC_TOKEN_ID env var, not the request.
 //
+// Either Recipient (a contact-book name) or RecipientAccountID (a literal Hedera
+// account ID) must be set — but not both. The contact name path is resolved
+// against the local address book (see contacts.go); the account-ID path
+// bypasses the book entirely.
+//
 // Amount must be a JSON string ("1.5"), not a number — string-only input keeps
 // callers off the float-imprecision path before the value reaches us.
-//
-// Example:
-//
-//	{
-//	  "recipientAccountId": "0.0.5678",
-//	  "amount": "1.5",
-//	  "memo": "PR #1685"
-//	}
 type PaymentRequest struct {
-	RecipientAccountID string          `json:"recipientAccountId"`
+	Recipient          string          `json:"recipient,omitempty"`
+	RecipientAccountID string          `json:"recipientAccountId,omitempty"`
 	Amount             decimal.Decimal `json:"amount"`
 	Memo               string          `json:"memo,omitempty"`
 }
@@ -67,12 +66,33 @@ const maxMemoBytes = 100
 // The cap check (vs MAX_PAYMENT_AMOUNT) is applied later, in run(), since it
 // depends on env config.
 func (r *PaymentRequest) Validate() error {
-	if r.RecipientAccountID == "" {
-		return fmt.Errorf("recipientAccountId is required")
+	hasName := r.Recipient != ""
+	hasID := r.RecipientAccountID != ""
+
+	switch {
+	case hasName && hasID:
+		return fmt.Errorf("set exactly one of recipient or recipientAccountId, not both")
+	case !hasName && !hasID:
+		return fmt.Errorf("set one of recipient (contact name) or recipientAccountId (e.g. 0.0.5678)")
 	}
-	if !accountIDPattern.MatchString(r.RecipientAccountID) {
-		return fmt.Errorf("recipientAccountId %q is not a valid Hedera account ID (expected shard.realm.num, e.g. 0.0.5678)", r.RecipientAccountID)
+
+	if hasID {
+		if !accountIDPattern.MatchString(r.RecipientAccountID) {
+			return fmt.Errorf("recipientAccountId %q is not a valid Hedera account ID (expected shard.realm.num, e.g. 0.0.5678)", r.RecipientAccountID)
+		}
+	} else {
+		name := strings.TrimSpace(r.Recipient)
+		if name == "" {
+			return fmt.Errorf("recipient is empty after trimming whitespace")
+		}
+		if len(name) > maxContactNameLen {
+			return fmt.Errorf("recipient %q exceeds %d-character limit", name, maxContactNameLen)
+		}
+		if !contactNamePattern.MatchString(name) {
+			return fmt.Errorf("recipient %q has invalid characters (allowed: a-z, A-Z, 0-9, _, -)", name)
+		}
 	}
+
 	if !r.Amount.IsPositive() {
 		return fmt.Errorf("amount must be positive, got %s", r.Amount.String())
 	}

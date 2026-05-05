@@ -20,7 +20,7 @@ When in doubt, ask. The cost of asking once is trivial; the cost of an unwanted 
 
 ## What this binary does
 
-`hiero-pay` is a Go CLI that signs and submits USDC token transfers on Hedera **autonomously** — there is no per-call confirmation prompt. Every successful transfer is also written to a public HCS audit topic. v1.5, testnet-first.
+`hiero-pay` is a Go CLI that signs and submits USDC token transfers on Hedera **autonomously** — there is no per-call confirmation prompt. Every successful transfer is also written to a public HCS audit topic. Testnet-first.
 
 Practical implication: any code change that affects the request → sign → submit path is one keystroke from moving real (testnet) USDC. Treat the signing path like a hot key. Do **not** invoke the binary against real env vars from a test or example unless the user explicitly asks.
 

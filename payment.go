@@ -16,9 +16,6 @@ type Signer interface {
 	Submit(ctx context.Context, t Transfer) (TxResult, error)
 }
 
-// Transfer is the orchestrator's domain representation of a token transfer.
-// v1 is USDC-only, so the asset is implied by TokenID; Slice 3 (multi-currency)
-// extends this with explicit asset discrimination.
 type Transfer struct {
 	TokenID  hiero.TokenID
 	From, To hiero.AccountID
@@ -67,11 +64,11 @@ func Pay(ctx context.Context, deps Deps, req PaymentRequest, t Transfer) (*Resul
 		Version:       auditMessageVersion,
 		TransactionID: result.TransactionID,
 		From:          deps.Cfg.operatorID.String(),
-		To:            req.RecipientAccountID,
-		TokenID:       deps.Cfg.tokenID.String(),
-		Amount:        req.Amount.String(),
-		Memo:          req.Memo,
-		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		To:        t.To.String(),
+		TokenID:   deps.Cfg.tokenID.String(),
+		Amount:    req.Amount.String(),
+		Memo:      req.Memo,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 	if auditErr != nil {
 		result.AuditStatus = "FAILED"
@@ -90,10 +87,6 @@ type HieroSigner struct {
 	Client *hiero.Client
 }
 
-// Submit builds, executes, and confirms a token transfer via hiero-sdk-go.
-// The ctx parameter is reserved for forward compatibility — today's SDK call
-// chain does not accept a context, but adding one to the interface up front
-// avoids a future signature break.
 func (s *HieroSigner) Submit(_ context.Context, t Transfer) (TxResult, error) {
 	tx := hiero.NewTransferTransaction().
 		AddTokenTransfer(t.TokenID, t.From, -t.RawUnits).
