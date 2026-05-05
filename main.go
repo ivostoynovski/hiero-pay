@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"math"
 	"os"
 	"strings"
-	"time"
 
 	hiero "github.com/hiero-ledger/hiero-sdk-go/v2/sdk"
 	"github.com/shopspring/decimal"
@@ -83,34 +83,27 @@ func run(filePath string) error {
 	}
 	defer func() { _ = client.Close() }()
 
-	result, err := executeTransfer(client, cfg, &req, rawUnits)
+	recipientID, err := hiero.AccountIDFromString(req.RecipientAccountID)
 	if err != nil {
-		return fail("TRANSFER_FAILED", err)
+		return fail("TRANSFER_FAILED", fmt.Errorf("invalid recipientAccountId: %w", err))
 	}
 
-	// Audit logging — degrade gracefully. Payment integrity always trumps
-	// audit completeness: if the audit submission fails, we still report the
-	// transfer as SUCCESS but mark the audit as FAILED so the caller knows.
-	if cfg.auditTopicID == nil {
-		result.AuditStatus = "SKIPPED"
-	} else {
-		audit, auditErr := writeAudit(client, cfg, &AuditMessage{
-			Version:       auditMessageVersion,
-			TransactionID: result.TransactionID,
-			From:          cfg.operatorID.String(),
-			To:            req.RecipientAccountID,
-			TokenID:       cfg.tokenID.String(),
-			Amount:        req.Amount.String(),
-			Memo:          req.Memo,
-			Timestamp:     time.Now().UTC().Format(time.RFC3339),
-		})
-		if auditErr != nil {
-			result.AuditStatus = "FAILED"
-			result.AuditError = auditErr.Error()
-		} else {
-			result.AuditStatus = "SUCCESS"
-			result.AuditMessage = audit
-		}
+	deps := Deps{
+		Cfg:    cfg,
+		Signer: &HieroSigner{Client: client},
+		Client: client,
+	}
+	transfer := Transfer{
+		TokenID:  cfg.tokenID,
+		From:     cfg.operatorID,
+		To:       recipientID,
+		RawUnits: rawUnits,
+		Memo:     req.Memo,
+	}
+
+	result, err := Pay(context.Background(), deps, req, transfer)
+	if err != nil {
+		return fail("TRANSFER_FAILED", err)
 	}
 
 	encoded, _ := json.Marshal(result)
@@ -218,33 +211,6 @@ func toRawUnits(amount decimal.Decimal, decimals int32) (int64, error) {
 		return 0, fmt.Errorf("amount %s overflows int64 raw units at %d decimals", amount.String(), decimals)
 	}
 	return raw.IntPart(), nil
-}
-
-func executeTransfer(client *hiero.Client, cfg *config, req *PaymentRequest, rawUnits int64) (*Result, error) {
-	recipientID, err := hiero.AccountIDFromString(req.RecipientAccountID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid recipientAccountId: %w", err)
-	}
-
-	tx := hiero.NewTransferTransaction().
-		AddTokenTransfer(cfg.tokenID, cfg.operatorID, -rawUnits).
-		AddTokenTransfer(cfg.tokenID, recipientID, rawUnits).
-		SetTransactionMemo(req.Memo)
-
-	resp, err := tx.Execute(client)
-	if err != nil {
-		return nil, fmt.Errorf("execute transfer: %w", err)
-	}
-
-	receipt, err := resp.GetReceipt(client)
-	if err != nil {
-		return nil, fmt.Errorf("get receipt: %w", err)
-	}
-
-	return &Result{
-		TransactionID: resp.TransactionID.String(),
-		Status:        receipt.Status.String(),
-	}, nil
 }
 
 func readInput(filePath string) ([]byte, error) {
