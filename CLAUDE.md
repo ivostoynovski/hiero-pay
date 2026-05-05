@@ -63,6 +63,10 @@ These exist on purpose; preserve them across refactors:
 - PRs are merged via squash; commit subjects show the PR number in `(#N)` form. Don't try to replicate that suffix in local commits — GitHub adds it on merge.
 - Comments lean toward explaining *why*, not *what*. Existing comments are a good model — match the density and tone, don't add narration.
 
+## Testing philosophy
+
+Test **behaviour, not implementation detail** ([why](https://quii.gitbook.io/learn-go-with-tests/meta/why)) — tests exist to enable refactoring, and tests-on-internals make refactoring fail. Before authoring, modifying, or reviewing any test in this repo, consult `.claude/agents/test-verifier.md`; that's the operational checklist (author guidance + reviewer checks). This section just names the principle.
+
 ## Skills
 
 Project-scoped skills live in `.claude/skills/`:
