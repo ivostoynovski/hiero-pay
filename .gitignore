@@ -14,3 +14,9 @@ ADDRESS_BOOK_PLAN.md
 
 # Operator-specific address book — must never be committed
 contacts.json
+
+# Local payment-history database (SQLite) and its WAL/SHM sidecars
+history.db
+history.db-wal
+history.db-shm
+history.db-journal

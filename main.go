@@ -25,9 +25,11 @@ var defaultMaxAmount = decimal.NewFromInt(10_000)
 type Result struct {
 	TransactionID string       `json:"transactionId"`
 	Status        string       `json:"status"`
-	AuditStatus   string       `json:"auditStatus,omitempty"`   // SUCCESS | SKIPPED | FAILED
-	AuditMessage  *AuditResult `json:"auditMessage,omitempty"`  // present when AuditStatus = SUCCESS
-	AuditError    string       `json:"auditError,omitempty"`    // present when AuditStatus = FAILED
+	DBStatus      string       `json:"dbStatus,omitempty"`     // SUCCESS | SKIPPED | FAILED
+	DBError       string       `json:"dbError,omitempty"`      // present when DBStatus = FAILED
+	AuditStatus   string       `json:"auditStatus,omitempty"`  // SUCCESS | SKIPPED | FAILED
+	AuditMessage  *AuditResult `json:"auditMessage,omitempty"` // present when AuditStatus = SUCCESS
+	AuditError    string       `json:"auditError,omitempty"`   // present when AuditStatus = FAILED
 }
 
 // ErrorOut is the JSON written to stderr on failure. Code is a stable machine-
@@ -130,6 +132,12 @@ func run(filePath string) error {
 	}
 	defer func() { _ = client.Close() }()
 
+	store, err := OpenSQLitePaymentStore("")
+	if err != nil {
+		return fail("CONFIG_MISSING", err)
+	}
+	defer func() { _ = store.Close() }()
+
 	recipientID, err := hiero.AccountIDFromString(recipientAccountID)
 	if err != nil {
 		return fail("TRANSFER_FAILED", fmt.Errorf("invalid recipientAccountId: %w", err))
@@ -138,14 +146,18 @@ func run(filePath string) error {
 	deps := Deps{
 		Cfg:    cfg,
 		Signer: &HieroSigner{Client: client},
+		Store:  store,
 		Client: client,
 	}
 	transfer := Transfer{
-		AssetKind: asset.Kind,
-		From:      cfg.operatorID,
-		To:        recipientID,
-		RawUnits:  rawUnits,
-		Memo:      req.Memo,
+		AssetKind:   asset.Kind,
+		AssetSymbol: asset.Symbol,
+		Decimals:    asset.Decimals,
+		From:        cfg.operatorID,
+		To:          recipientID,
+		ToName:      req.Recipient,
+		RawUnits:    rawUnits,
+		Memo:        req.Memo,
 	}
 	if asset.Kind == AssetKindHTS {
 		tokenID, parseErr := hiero.TokenIDFromString(asset.TokenID)
