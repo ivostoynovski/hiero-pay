@@ -71,7 +71,21 @@ func run(filePath string) error {
 		return fail("INVALID_INPUT", fmt.Errorf("amount %s exceeds MAX_PAYMENT_AMOUNT cap of %s", req.Amount.String(), cfg.maxAmount.String()))
 	}
 
-	rawUnits, err := toRawUnits(req.Amount, usdcDecimals)
+	// Default missing asset to USDC for back-compat with pre-Slice-3 requests.
+	if req.Asset == "" {
+		req.Asset = "USDC"
+	}
+
+	registry, err := LoadTokenRegistry()
+	if err != nil {
+		return fail("CONFIG_MISSING", err)
+	}
+	asset, err := registry.Lookup(req.Asset)
+	if err != nil {
+		return fail("INVALID_INPUT", err)
+	}
+
+	rawUnits, err := toRawUnits(req.Amount, asset.Decimals)
 	if err != nil {
 		return fail("INVALID_INPUT", err)
 	}
@@ -96,6 +110,20 @@ func run(filePath string) error {
 		recipientAccountID = resolved
 	}
 
+	// Pre-sign audit-message size check: if audit logging is enabled and the
+	// resulting JSON would exceed HCS's effective per-message limit, surface
+	// the configuration problem here rather than as a post-transfer audit
+	// failure.
+	if cfg.auditTopicID != nil {
+		tokenIDForAudit := ""
+		if asset.Kind == AssetKindHTS {
+			tokenIDForAudit = asset.TokenID
+		}
+		if size := auditMessageSizeUpperBound(asset.Symbol, tokenIDForAudit, req.Memo); size > maxAuditMessageBytes {
+			return fail("INVALID_INPUT", fmt.Errorf("audit message would exceed %d-byte HCS limit (estimated %d bytes)", maxAuditMessageBytes, size))
+		}
+	}
+
 	client, err := buildClient(cfg)
 	if err != nil {
 		return fail("AUTH_ERROR", err)
@@ -113,11 +141,18 @@ func run(filePath string) error {
 		Client: client,
 	}
 	transfer := Transfer{
-		TokenID:  cfg.tokenID,
-		From:     cfg.operatorID,
-		To:       recipientID,
-		RawUnits: rawUnits,
-		Memo:     req.Memo,
+		AssetKind: asset.Kind,
+		From:      cfg.operatorID,
+		To:        recipientID,
+		RawUnits:  rawUnits,
+		Memo:      req.Memo,
+	}
+	if asset.Kind == AssetKindHTS {
+		tokenID, parseErr := hiero.TokenIDFromString(asset.TokenID)
+		if parseErr != nil {
+			return fail("CONFIG_MISSING", fmt.Errorf("registry tokenId %q: %w", asset.TokenID, parseErr))
+		}
+		transfer.TokenID = tokenID
 	}
 
 	result, err := Pay(context.Background(), deps, req, transfer)
@@ -134,7 +169,6 @@ type config struct {
 	operatorID   hiero.AccountID
 	operatorKey  hiero.PrivateKey
 	network      string
-	tokenID      hiero.TokenID
 	auditTopicID *hiero.TopicID  // nil when audit logging is disabled
 	maxAmount    decimal.Decimal // upper cap on a single payment
 }
@@ -143,14 +177,12 @@ func loadConfig() (*config, error) {
 	opID := os.Getenv("OPERATOR_ID")
 	opKey := os.Getenv("OPERATOR_KEY")
 	network := os.Getenv("HEDERA_NETWORK")
-	tokenID := os.Getenv("USDC_TOKEN_ID")
 
 	missing := []string{}
 	for k, v := range map[string]string{
 		"OPERATOR_ID":    opID,
 		"OPERATOR_KEY":   opKey,
 		"HEDERA_NETWORK": network,
-		"USDC_TOKEN_ID":  tokenID,
 	} {
 		if v == "" {
 			missing = append(missing, k)
@@ -167,10 +199,6 @@ func loadConfig() (*config, error) {
 	privKey, err := parseOperatorKey(opKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid OPERATOR_KEY: %w", err)
-	}
-	tID, err := hiero.TokenIDFromString(tokenID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid USDC_TOKEN_ID %q: %w", tokenID, err)
 	}
 
 	// AUDIT_TOPIC_ID is optional — when empty, audit logging is skipped.
@@ -200,7 +228,6 @@ func loadConfig() (*config, error) {
 		operatorID:   accountID,
 		operatorKey:  privKey,
 		network:      network,
-		tokenID:      tID,
 		auditTopicID: auditTopic,
 		maxAmount:    maxAmount,
 	}, nil

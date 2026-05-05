@@ -17,10 +17,11 @@ type Signer interface {
 }
 
 type Transfer struct {
-	TokenID  hiero.TokenID
-	From, To hiero.AccountID
-	RawUnits int64
-	Memo     string
+	AssetKind AssetKind       // HBAR or HTS
+	TokenID   hiero.TokenID   // unset (zero value) for HBAR
+	From, To  hiero.AccountID
+	RawUnits  int64
+	Memo      string
 }
 
 // TxResult is what Signer reports back after a successful submission.
@@ -60,16 +61,21 @@ func Pay(ctx context.Context, deps Deps, req PaymentRequest, t Transfer) (*Resul
 		return result, nil
 	}
 
-	audit, auditErr := writeAudit(deps.Client, deps.Cfg, &AuditMessage{
+	msg := &AuditMessage{
 		Version:       auditMessageVersion,
 		TransactionID: result.TransactionID,
 		From:          deps.Cfg.operatorID.String(),
-		To:        t.To.String(),
-		TokenID:   deps.Cfg.tokenID.String(),
-		Amount:    req.Amount.String(),
-		Memo:      req.Memo,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	})
+		To:            t.To.String(),
+		Asset:         req.Asset,
+		Amount:        req.Amount.String(),
+		Memo:          req.Memo,
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+	}
+	if t.AssetKind == AssetKindHTS {
+		msg.TokenID = t.TokenID.String()
+	}
+
+	audit, auditErr := writeAudit(deps.Client, deps.Cfg, msg)
 	if auditErr != nil {
 		result.AuditStatus = "FAILED"
 		result.AuditError = auditErr.Error()
@@ -88,10 +94,20 @@ type HieroSigner struct {
 }
 
 func (s *HieroSigner) Submit(_ context.Context, t Transfer) (TxResult, error) {
-	tx := hiero.NewTransferTransaction().
-		AddTokenTransfer(t.TokenID, t.From, -t.RawUnits).
-		AddTokenTransfer(t.TokenID, t.To, t.RawUnits).
-		SetTransactionMemo(t.Memo)
+	tx := hiero.NewTransferTransaction().SetTransactionMemo(t.Memo)
+
+	switch t.AssetKind {
+	case AssetKindHBAR:
+		tx = tx.
+			AddHbarTransfer(t.From, hiero.HbarFromTinybar(-t.RawUnits)).
+			AddHbarTransfer(t.To, hiero.HbarFromTinybar(t.RawUnits))
+	case AssetKindHTS:
+		tx = tx.
+			AddTokenTransfer(t.TokenID, t.From, -t.RawUnits).
+			AddTokenTransfer(t.TokenID, t.To, t.RawUnits)
+	default:
+		return TxResult{}, fmt.Errorf("unknown asset kind %q", t.AssetKind)
+	}
 
 	resp, err := tx.Execute(s.Client)
 	if err != nil {

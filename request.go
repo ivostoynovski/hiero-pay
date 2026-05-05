@@ -22,6 +22,7 @@ import (
 type PaymentRequest struct {
 	Recipient          string          `json:"recipient,omitempty"`
 	RecipientAccountID string          `json:"recipientAccountId,omitempty"`
+	Asset              string          `json:"asset,omitempty"`
 	Amount             decimal.Decimal `json:"amount"`
 	Memo               string          `json:"memo,omitempty"`
 }
@@ -95,9 +96,6 @@ func (r *PaymentRequest) Validate() error {
 
 	if !r.Amount.IsPositive() {
 		return fmt.Errorf("amount must be positive, got %s", r.Amount.String())
-	}
-	if -r.Amount.Exponent() > usdcDecimals {
-		return fmt.Errorf("amount %s exceeds USDC's %d-decimal precision", r.Amount.String(), usdcDecimals)
 	}
 	if len(r.Memo) > maxMemoBytes {
 		return fmt.Errorf("memo exceeds %d-byte Hedera transaction memo limit (got %d bytes)", maxMemoBytes, len(r.Memo))
