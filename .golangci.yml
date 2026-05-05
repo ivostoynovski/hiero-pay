@@ -1,0 +1,22 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: standard
+  enable:
+    - gosec
+    - misspell
+  settings:
+    gosec:
+      excludes:
+        # G304: file path provided as taint input. The --file flag is the
+        # documented entry point; reading whatever path the operator passes
+        # is by design.
+        - G304
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec

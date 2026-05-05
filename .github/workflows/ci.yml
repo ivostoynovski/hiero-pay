@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: build / vet / test
+    name: build / vet / lint / test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -27,8 +27,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.7.1
+
       - name: Build
         run: go build ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
