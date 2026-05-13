@@ -3,7 +3,7 @@ module github.com/ivostoynovski/hiero-pay
 go 1.25.7
 
 require (
-	github.com/hiero-ledger/hiero-sdk-go/v2 v2.79.0
+	github.com/hiero-ledger/hiero-sdk-go/v2 v2.80.0
 	github.com/shopspring/decimal v1.4.0
 	modernc.org/sqlite v1.50.0
 )
@@ -29,7 +29,7 @@ require (
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260316180232-0b37fe3546d5 // indirect
-	google.golang.org/grpc v1.80.0 // indirect
+	google.golang.org/grpc v1.81.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
