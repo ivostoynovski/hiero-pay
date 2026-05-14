@@ -20,3 +20,8 @@ history.db
 history.db-wal
 history.db-shm
 history.db-journal
+
+# Web frontend build artifacts
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep

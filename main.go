@@ -45,11 +45,12 @@ func main() {
 		_, _ = fmt.Fprint(out, `Usage:
   hiero-pay [--file PATH]      Submit a payment from JSON (stdin if --file omitted)
   hiero-pay history [flags]    Query the local payment history
+  hiero-pay serve [flags]      Run the local web UI (127.0.0.1:8080 by default)
 
 Pay flags:
 `)
 		flag.PrintDefaults()
-		_, _ = fmt.Fprintln(out, "\nRun 'hiero-pay history --help' to see history flags.")
+		_, _ = fmt.Fprintln(out, "\nRun 'hiero-pay history --help' or 'hiero-pay serve --help' to see subcommand flags.")
 	}
 
 	if len(os.Args) > 1 && os.Args[1] == "history" {
@@ -60,6 +61,14 @@ Pay flags:
 		}
 		defer func() { _ = store.Close() }()
 		if err := runHistory(os.Args[2:], store, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		if err := serveCmd(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
