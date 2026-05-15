@@ -164,6 +164,39 @@ name), `--status`, `--limit` (default 50). Output: `--format=json`
 
 Pure read — never constructs the signer, can't move funds.
 
+## Web UI (`hiero-pay serve`)
+
+> Status: scaffold only. The chat assistant lands in a follow-up slice — for
+> now `serve` ships an embedded React shell that pings `/api/health`.
+
+`hiero-pay serve` binds to `127.0.0.1:8080` and serves the embedded web
+frontend plus a small JSON API. Localhost-only by design — there is no auth
+flow yet, so do **not** expose this port to the network.
+
+```sh
+make build           # builds web/dist and the Go binary
+./hiero-pay serve    # http://127.0.0.1:8080
+./hiero-pay serve --addr 127.0.0.1:9000   # custom port
+```
+
+### Developing the frontend
+
+Two terminals during development — the Vite dev server proxies `/api/*` to
+the Go backend so HMR works without rebuilding the Go binary on every save.
+
+```sh
+# Terminal 1 — Go backend (serves built assets, but the proxy bypasses them)
+make dev-backend
+
+# Terminal 2 — Vite dev server on :5173, proxies /api → :8080
+make dev-frontend
+```
+
+The frontend lives in `web/` (Vite + React + TypeScript + Tailwind v4 +
+shadcn/ui). Production assets are built into `web/dist/` and embedded into
+the Go binary via `//go:embed`; a fresh clone needs `make install-frontend`
+once to pull npm dependencies.
+
 ## Output schema
 
 Success (stdout):
@@ -217,6 +250,7 @@ If `AUDIT_TOPIC_ID` is empty, audit logging is silently skipped and
 - [x] Address book (pay by name)
 - [x] Multi-currency: HBAR + configurable HTS tokens
 - [x] Local SQLite payment history + `hiero-pay history` subcommand
+- [ ] Chat-driven web UI (`hiero-pay serve`) — scaffold landed, LLM + chat WIP
 - [ ] Reconciliation against mirror node (`hiero-pay reconcile`)
 - [ ] `TokenInfoQuery` runtime decimals fallback for unconfigured tokens
 - [ ] Mainnet hardening (small balances, return-bytes mode for
