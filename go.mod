@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/hiero-ledger/hiero-sdk-go/v2 v2.80.0
 	github.com/shopspring/decimal v1.4.0
-	modernc.org/sqlite v1.50.1
+	modernc.org/sqlite v1.52.0
 )
 
 require (
