@@ -166,8 +166,9 @@ Pure read — never constructs the signer, can't move funds.
 
 ## Web UI (`hiero-pay serve`)
 
-> Status: scaffold only. The chat assistant lands in a follow-up slice — for
-> now `serve` ships an embedded React shell that pings `/api/health`.
+> Status: chat only. Payment + history tools land in follow-up slices — for
+> now the assistant can answer questions about `hiero-pay` but cannot
+> execute payments.
 
 `hiero-pay serve` binds to `127.0.0.1:8080` and serves the embedded web
 frontend plus a small JSON API. Localhost-only by design — there is no auth
@@ -175,9 +176,23 @@ flow yet, so do **not** expose this port to the network.
 
 ```sh
 make build           # builds web/dist and the Go binary
+source .env          # must include LLM_MODEL + the matching provider key
 ./hiero-pay serve    # http://127.0.0.1:8080
 ./hiero-pay serve --addr 127.0.0.1:9000   # custom port
 ```
+
+### LLM configuration
+
+The chat backend selects its provider by prefix-matching `LLM_MODEL`:
+
+| `LLM_MODEL` prefix | Provider  | Required env var      | Status            |
+| ------------------ | --------- | --------------------- | ----------------- |
+| `claude-*`         | Anthropic | `ANTHROPIC_API_KEY`   | shipped (Slice 2) |
+| `gpt-*` / `o*`     | OpenAI    | `OPENAI_API_KEY`      | Slice 5 — pending |
+
+Keys are read once from the process environment at startup and never leave
+the local server. Both `LLM_MODEL` and the matching key are required for
+`serve` to start.
 
 ### Developing the frontend
 
